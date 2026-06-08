@@ -6,13 +6,42 @@ import { useCallback, useEffect, useState } from "react";
 import IntroFlow from "@/components/intro/IntroFlow";
 import { navigateWithFade } from "@/lib/navigation/navigateWithFade";
 import { usePageFadeIn } from "@/lib/navigation/usePageFadeIn";
-import { stopHubBgm } from "@/lib/market/hubSounds";
+import { fadeOutMainBgm, preloadMainBgm, startMainBgm, stopHubBgm } from "@/lib/market/hubSounds";
 import { resetGameProgress } from "@/lib/player/resetGameProgress";
 import { usePlayerStore } from "@/store/playerStore";
 import { useNarrativeStore } from "@/store/narrativeStore";
 
 type BootPhase = "loading" | "intro" | "home";
 type NicknamePhase = "input" | "continue" | "finished" | "new";
+type BgFade = "hidden" | "visible" | "leaving";
+
+function StartPageBackground({ fade }: { fade: BgFade }) {
+  const fadeClass =
+    fade === "visible" ? "is-visible" : fade === "leaving" ? "is-leaving" : "";
+
+  return (
+    <div className={`start-page__bg ${fadeClass}`.trim()} aria-hidden>
+      <div className="start-page__video-stage">
+        <video
+          className="start-page__video"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+        >
+          <source src="/narrative/intro.webm" type="video/webm" />
+          <source src="/narrative/intro.mp4" type="video/mp4" />
+        </video>
+        <div className="start-page__chromatic start-page__chromatic--r" />
+        <div className="start-page__chromatic start-page__chromatic--b" />
+      </div>
+      <div className="start-page__scanlines" />
+      <div className="start-page__noise" />
+      <div className="start-page__overlay" />
+    </div>
+  );
+}
 
 export default function StartPage() {
   const router = useRouter();
@@ -29,6 +58,8 @@ export default function StartPage() {
   const introDone = useNarrativeStore((s) => s.introDone);
 
   const [bootPhase, setBootPhase] = useState<BootPhase>("loading");
+  const [bgFade, setBgFade] = useState<BgFade>("hidden");
+  const [showButtons, setShowButtons] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [nickname, setNickname] = useState("");
   const [phase, setPhase] = useState<NicknamePhase>("input");
@@ -45,9 +76,41 @@ export default function StartPage() {
     setBootPhase(introDone ? "home" : "intro");
   }, [playersHydrated, narrativeHydrated, introDone]);
 
+  useEffect(() => {
+    if (bootPhase !== "home") {
+      setBgFade("hidden");
+      setShowButtons(false);
+      return;
+    }
+    setShowButtons(false);
+    stopHubBgm();
+    preloadMainBgm();
+    const frame = requestAnimationFrame(() => setBgFade("visible"));
+    return () => {
+      cancelAnimationFrame(frame);
+      void fadeOutMainBgm();
+      setBgFade("hidden");
+      setShowButtons(false);
+    };
+  }, [bootPhase]);
+
+  const revealButtons = useCallback(() => {
+    startMainBgm();
+    setShowButtons(true);
+  }, []);
+
+  const leaveHome = useCallback(
+    async (href: string) => {
+      setBgFade("leaving");
+      await fadeOutMainBgm();
+      await navigateWithFade(router, href);
+    },
+    [router],
+  );
+
   const enterMarket = useCallback(async () => {
-    await navigateWithFade(router, "/market");
-  }, [router]);
+    await leaveHome("/market");
+  }, [leaveHome]);
 
   const resolveNickname = useCallback(() => {
     const trimmed = nickname.trim();
@@ -116,20 +179,58 @@ export default function StartPage() {
   }
 
   return (
-    <div className="start-page min-h-screen flex flex-col items-center px-4 py-10 sm:py-14">
-      <div className="w-full max-w-xl flex flex-col items-center gap-8">
-        <header className="text-center space-y-2">
-          <h1 className="game-title text-2xl sm:text-3xl tracking-widest">無人夜市</h1>
-          <p className="text-sm opacity-70 tracking-wide">2005 年 6 月，畢業旅行的那一夜</p>
-        </header>
+    <div className="start-page">
+      <StartPageBackground fade={bgFade} />
+      <div className="start-page__content">
+        <div className="w-full max-w-xl flex flex-col items-center gap-8">
+          <header
+            className={`start-page__header text-center space-y-2${showButtons ? "" : " start-page__header--clickable"}`}
+            onClick={showButtons ? undefined : revealButtons}
+            onKeyDown={
+              showButtons
+                ? undefined
+                : (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      revealButtons();
+                    }
+                  }
+            }
+            role={showButtons ? undefined : "button"}
+            tabIndex={showButtons ? undefined : 0}
+          >
+            <h1 className="start-page__title game-title text-2xl sm:text-3xl tracking-widest">
+              <span className="start-page__title-base">無人夜市</span>
+              <span className="start-page__title-ghost start-page__title-ghost--r" aria-hidden>
+                無人夜市
+              </span>
+              <span className="start-page__title-ghost start-page__title-ghost--b" aria-hidden>
+                無人夜市
+              </span>
+            </h1>
+            <p className="start-page__subtitle text-sm opacity-70 tracking-wide">
+              Night Market of Solitude
+            </p>
+          </header>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4">
+          <div
+            className={`start-page__actions flex flex-col sm:flex-row items-center gap-4${showButtons ? " is-visible" : ""}`}
+          >
           <button type="button" className="game-btn-primary text-base px-10 py-3" onClick={openStartModal}>
             開始遊戲
           </button>
-          <Link href="/leaderboard" className="game-btn-ghost text-base px-10 py-3" data-ui-sound="enter">
+          <Link
+            href="/leaderboard"
+            className="game-btn-ghost text-base px-10 py-3"
+            data-ui-sound="enter"
+            onClick={(e) => {
+              e.preventDefault();
+              void leaveHome("/leaderboard");
+            }}
+          >
             排行榜
           </Link>
+          </div>
         </div>
       </div>
 

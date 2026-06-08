@@ -6,6 +6,7 @@ import {
 import type { StallId } from "@/lib/narrative/types";
 
 const HUB_BGM_SRC = "/sfx/hub/BGM.mp3";
+const MAIN_BGM_SRC = "/sfx/hub/main_bgm.mp3";
 const CASH_SRC = "/sfx/hub/cash.mp3";
 const REWARD_SRC = "/sfx/hub/reward.mp3";
 
@@ -23,6 +24,8 @@ const STALL_BGM_SRC: Record<StallId, string> = {
 };
 
 const HUB_BGM_VOLUME = 0.07;
+const MAIN_BGM_VOLUME = 0.07;
+export const MAIN_BGM_FADE_MS = 2000;
 const FOOTSTEP_VOLUME = 0.05;
 const CASH_VOLUME = 0.5;
 const REWARD_VOLUME = 0.25;
@@ -71,6 +74,41 @@ const STALL_BGM_SILENCE_THRESHOLD = 0.003;
 const WALK_STEP_MS = (1170 / 3) * 2;
 
 let hubBgmAudio: HTMLAudioElement | null = null;
+let mainBgmAudio: HTMLAudioElement | null = null;
+let mainBgmFadeRaf = 0;
+
+function cancelMainBgmFade() {
+  if (!mainBgmFadeRaf) return;
+  cancelAnimationFrame(mainBgmFadeRaf);
+  mainBgmFadeRaf = 0;
+}
+
+function fadeMainBgmTo(target: number, durationMs: number): Promise<void> {
+  cancelMainBgmFade();
+  const audio = getMainBgmAudio();
+  const from = audio.volume;
+  if (durationMs <= 0 || Math.abs(from - target) < 0.001) {
+    audio.volume = target;
+    return Promise.resolve();
+  }
+
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = t * (2 - t);
+      audio.volume = from + (target - from) * eased;
+      if (t < 1) {
+        mainBgmFadeRaf = requestAnimationFrame(tick);
+        return;
+      }
+      mainBgmFadeRaf = 0;
+      audio.volume = target;
+      resolve();
+    };
+    mainBgmFadeRaf = requestAnimationFrame(tick);
+  });
+}
 
 function makeLoopAudio(src: string, volume: number) {
   const audio = new Audio(src);
@@ -100,6 +138,52 @@ export function stopHubBgm() {
   if (!hubBgmAudio) return;
   hubBgmAudio.pause();
   hubBgmAudio.currentTime = 0;
+}
+
+function getMainBgmAudio() {
+  if (!mainBgmAudio) {
+    mainBgmAudio = makeLoopAudio(MAIN_BGM_SRC, MAIN_BGM_VOLUME);
+  }
+  return mainBgmAudio;
+}
+
+/** 預載首頁 BGM（不自動播放，避免瀏覽器阻擋） */
+export function preloadMainBgm() {
+  getMainBgmAudio().load();
+}
+
+/** 首頁主選單 BGM（淡入；需在使用者點擊後呼叫） */
+export function startMainBgm() {
+  const audio = getMainBgmAudio();
+  cancelMainBgmFade();
+  audio.load();
+  if (!audio.paused && audio.volume >= MAIN_BGM_VOLUME * 0.9) return;
+  if (audio.paused) {
+    audio.volume = 0;
+    void audio.play().catch(() => {});
+  }
+  void fadeMainBgmTo(MAIN_BGM_VOLUME, MAIN_BGM_FADE_MS);
+}
+
+/** 首頁主選單 BGM（淡出後停止） */
+export function fadeOutMainBgm(): Promise<void> {
+  if (!mainBgmAudio || mainBgmAudio.paused) {
+    return Promise.resolve();
+  }
+  return fadeMainBgmTo(0, MAIN_BGM_FADE_MS).then(() => {
+    if (!mainBgmAudio) return;
+    mainBgmAudio.pause();
+    mainBgmAudio.currentTime = 0;
+    mainBgmAudio.volume = MAIN_BGM_VOLUME;
+  });
+}
+
+export function stopMainBgm() {
+  cancelMainBgmFade();
+  if (!mainBgmAudio) return;
+  mainBgmAudio.pause();
+  mainBgmAudio.currentTime = 0;
+  mainBgmAudio.volume = MAIN_BGM_VOLUME;
 }
 
 export type HubSoundFx = {

@@ -33,14 +33,6 @@ export const narrativeDefault: NarrativeBundle = {
       buttons: [{ id: "btn-investigate", label: "前往一探究竟", action: "goto-investigate" }],
     },
     { type: "dialogue", id: "intro-d15", speaker: "主角", text: "竟然給我偷跑，你們等等完了。" },
-    { type: "visual", id: "intro-v5", visual: "title-card" },
-    {
-      type: "buttons",
-      id: "intro-b3",
-      buttons: [
-        { id: "btn-play", label: "開始遊玩", action: "goto-market" },
-      ],
-    },
   ],
   marketOpening: [
     { type: "dialogue", id: "mkt-d1", speaker: "主角", text: "結果還是沒有人，他們到底跑哪去了？" },
