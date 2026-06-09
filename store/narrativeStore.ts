@@ -2,11 +2,18 @@
 
 import { create } from "zustand";
 import { narrativeDefault } from "@/data/narrative-default";
+import type { CollectibleId } from "@/lib/collectibles/types";
 import type { NarrativeBundle, StallId } from "@/lib/narrative/types";
 
 const STORAGE_KEY = "night-market-narrative-v1";
 
 type Overrides = Record<string, string>;
+
+export type CharmSpawn = {
+  id: string;
+  stallId: StallId;
+  itemId: CollectibleId;
+};
 
 type Persisted = {
   introDone: boolean;
@@ -16,6 +23,7 @@ type Persisted = {
   completedStalls: StallId[];
   playedStalls: StallId[];
   pointCardSpawnStall: StallId | null;
+  charmSpawns: CharmSpawn[];
   marketOpeningDone: boolean;
   boundaryIndex: number;
   seenEndingId: string | null;
@@ -31,6 +39,7 @@ function loadPersisted(): Persisted {
       completedStalls: [],
       playedStalls: [],
       pointCardSpawnStall: null,
+      charmSpawns: [],
       marketOpeningDone: false,
       boundaryIndex: 0,
       seenEndingId: null,
@@ -47,6 +56,7 @@ function loadPersisted(): Persisted {
         completedStalls: [],
         playedStalls: [],
         pointCardSpawnStall: null,
+        charmSpawns: [],
         marketOpeningDone: false,
         boundaryIndex: 0,
         seenEndingId: null,
@@ -61,6 +71,11 @@ function loadPersisted(): Persisted {
       completedStalls: parsed.completedStalls ?? [],
       playedStalls: parsed.playedStalls ?? [],
       pointCardSpawnStall: parsed.pointCardSpawnStall ?? null,
+      charmSpawns: (parsed.charmSpawns ?? []).map((spawn) => ({
+        id: spawn.id,
+        stallId: spawn.stallId,
+        itemId: spawn.itemId,
+      })),
       marketOpeningDone: parsed.marketOpeningDone ?? false,
       boundaryIndex: parsed.boundaryIndex ?? 0,
       seenEndingId: parsed.seenEndingId ?? null,
@@ -74,6 +89,7 @@ function loadPersisted(): Persisted {
       completedStalls: [],
       playedStalls: [],
       pointCardSpawnStall: null,
+      charmSpawns: [],
       marketOpeningDone: false,
       boundaryIndex: 0,
       seenEndingId: null,
@@ -96,6 +112,7 @@ type NarrativeStore = {
   completedStalls: StallId[];
   playedStalls: StallId[];
   pointCardSpawnStall: StallId | null;
+  charmSpawns: CharmSpawn[];
   marketOpeningDone: boolean;
   boundaryIndex: number;
   seenEndingId: string | null;
@@ -112,6 +129,8 @@ type NarrativeStore = {
   markStallPlayed: (id: StallId) => void;
   hasPlayedStall: (id: StallId) => boolean;
   ensurePointCardSpawn: () => StallId | null;
+  addCharmSpawn: (spawn: { stallId: StallId; itemId: CollectibleId }) => void;
+  pickupCharmSpawn: (id: string) => CharmSpawn | null;
   completeMarketOpening: () => void;
   nextBoundaryLine: () => string | null;
   markEndingSeen: (id: string) => void;
@@ -128,6 +147,7 @@ export const useNarrativeStore = create<NarrativeStore>((set, get) => ({
   completedStalls: [],
   playedStalls: [],
   pointCardSpawnStall: null,
+  charmSpawns: [],
   marketOpeningDone: false,
   boundaryIndex: 0,
   seenEndingId: null,
@@ -143,6 +163,7 @@ export const useNarrativeStore = create<NarrativeStore>((set, get) => ({
       completedStalls: p.completedStalls,
       playedStalls: p.playedStalls,
       pointCardSpawnStall: p.pointCardSpawnStall,
+      charmSpawns: p.charmSpawns,
       marketOpeningDone: p.marketOpeningDone,
       boundaryIndex: p.boundaryIndex,
       seenEndingId: p.seenEndingId,
@@ -218,6 +239,24 @@ export const useNarrativeStore = create<NarrativeStore>((set, get) => ({
     return pick;
   },
 
+  addCharmSpawn: (spawn) => {
+    const id = `charm-${spawn.stallId}-${Date.now()}`;
+    const next = [...get().charmSpawns, { ...spawn, id }];
+    set({ charmSpawns: next });
+    const p = loadPersisted();
+    savePersisted({ ...p, charmSpawns: next });
+  },
+
+  pickupCharmSpawn: (id) => {
+    const found = get().charmSpawns.find((s) => s.id === id) ?? null;
+    if (!found) return null;
+    const next = get().charmSpawns.filter((s) => s.id !== id);
+    set({ charmSpawns: next });
+    const p = loadPersisted();
+    savePersisted({ ...p, charmSpawns: next });
+    return found;
+  },
+
   completeMarketOpening: () => {
     set({ marketOpeningDone: true });
     const p = loadPersisted();
@@ -249,6 +288,7 @@ export const useNarrativeStore = create<NarrativeStore>((set, get) => ({
       completedStalls: [],
       playedStalls: [],
       pointCardSpawnStall: null,
+      charmSpawns: [],
       marketOpeningDone: false,
       boundaryIndex: 0,
       seenEndingId: null,
@@ -260,6 +300,7 @@ export const useNarrativeStore = create<NarrativeStore>((set, get) => ({
       completedStalls: [],
       playedStalls: [],
       pointCardSpawnStall: null,
+      charmSpawns: [],
       marketOpeningDone: false,
       boundaryIndex: 0,
       seenEndingId: null,

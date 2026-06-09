@@ -3,6 +3,7 @@ import { DotGothic16 } from "next/font/google";
 import "./globals.css";
 // [收集系統] 全域取得物品對話層；任意頁呼叫 acquireCollectible 時顯示
 import CollectibleProviders from "@/components/collectibles/CollectibleProviders";
+import GameLoadingOverlay from "@/components/navigation/GameLoadingOverlay";
 import PageFadeOverlay from "@/components/navigation/PageFadeOverlay";
 import UiSoundProvider from "@/components/ui/UiSoundProvider";
 
@@ -27,6 +28,7 @@ export default function RootLayout({
       <body className="scanlines noise-overlay min-h-full flex flex-col antialiased">
         {children}
         <PageFadeOverlay />
+        <GameLoadingOverlay />
         <UiSoundProvider />
         <CollectibleProviders />
       </body>

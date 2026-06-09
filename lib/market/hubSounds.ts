@@ -4,11 +4,13 @@ import {
   type HubMetrics,
 } from "@/lib/market/hubLayout";
 import type { StallId } from "@/lib/narrative/types";
+import { createAmbientRandomSfx } from "@/lib/sfx/randomSfx";
 
 const HUB_BGM_SRC = "/sfx/hub/BGM.mp3";
 const MAIN_BGM_SRC = "/sfx/hub/main_bgm.mp3";
 const CASH_SRC = "/sfx/hub/cash.mp3";
 const REWARD_SRC = "/sfx/hub/reward.mp3";
+const GET_COIN_SRC = "/sfx/hub/get_coin.mp3";
 
 const FOOTSTEP_SRC = [
   "/sfx/hub/footstep_1.mp3",
@@ -23,15 +25,17 @@ const STALL_BGM_SRC: Record<StallId, string> = {
   catchfish: "/sfx/hub/bgm_stall_4.mp3",
 };
 
-const HUB_BGM_VOLUME = 0.07;
-const MAIN_BGM_VOLUME = 0.07;
+const HUB_BGM_VOLUME = 0.12;
+const MAIN_BGM_VOLUME = 0.15;
 export const MAIN_BGM_FADE_MS = 2000;
 const FOOTSTEP_VOLUME = 0.05;
-const CASH_VOLUME = 0.5;
+const CASH_VOLUME = 0.35;
 const REWARD_VOLUME = 0.25;
+const GET_COIN_VOLUME = 0.15;
 
 let cashAudio: HTMLAudioElement | null = null;
 let rewardAudio: HTMLAudioElement | null = null;
+let getCoinAudio: HTMLAudioElement | null = null;
 
 function playOneShot(template: HTMLAudioElement, volume: number) {
   const clip = template.cloneNode() as HTMLAudioElement;
@@ -57,6 +61,15 @@ function getRewardAudio() {
   return rewardAudio;
 }
 
+function getGetCoinAudio() {
+  if (!getCoinAudio) {
+    getCoinAudio = new Audio(GET_COIN_SRC);
+    getCoinAudio.preload = "auto";
+    getCoinAudio.volume = GET_COIN_VOLUME;
+  }
+  return getCoinAudio;
+}
+
 /** 背包兌換彩券為代幣時播放 */
 export function playCashSound() {
   playOneShot(getCashAudio(), CASH_VOLUME);
@@ -65,6 +78,11 @@ export function playCashSound() {
 /** 獲得道具時播放 */
 export function playRewardSound() {
   playOneShot(getRewardAudio(), REWARD_VOLUME);
+}
+
+/** 拾取地上彩票時播放 */
+export function playGetCoinSound() {
+  playOneShot(getGetCoinAudio(), GET_COIN_VOLUME);
 }
 /** 攤位 BGM 音量追蹤目標值的平滑係數（愈小愈慢） */
 const STALL_BGM_FADE_LERP = 0.1;
@@ -186,6 +204,11 @@ export function stopMainBgm() {
   mainBgmAudio.volume = MAIN_BGM_VOLUME;
 }
 
+/** 首頁 BGM 是否正在播放（結局返回主畫面時用來延續播放） */
+export function isMainBgmPlaying(): boolean {
+  return !!mainBgmAudio && !mainBgmAudio.paused && mainBgmAudio.volume > 0.01;
+}
+
 export type HubSoundFx = {
   preload: () => void;
   startHubBgm: () => void;
@@ -199,6 +222,8 @@ export type HubSoundFx = {
 };
 
 export function createHubSoundFx(): HubSoundFx {
+  const ambientSfx = createAmbientRandomSfx();
+
   const footstepClips = FOOTSTEP_SRC.map((src) => {
     const audio = new Audio(src);
     audio.preload = "auto";
@@ -307,11 +332,15 @@ export function createHubSoundFx(): HubSoundFx {
   return {
     preload: () => {
       getHubBgmAudio().load();
+      ambientSfx.preload();
       for (const audio of [...footstepClips, ...Object.values(stallTracks)]) {
         audio.load();
       }
     },
-    startHubBgm,
+    startHubBgm: () => {
+      startHubBgm();
+      ambientSfx.start();
+    },
     setWalking: (active) => {
       if (active) {
         if (walkingActive) return;
@@ -335,6 +364,7 @@ export function createHubSoundFx(): HubSoundFx {
       stopWalking();
       stopStallFadeLoop();
       stopAllStallTracks();
+      ambientSfx.dispose();
     },
   };
 }
