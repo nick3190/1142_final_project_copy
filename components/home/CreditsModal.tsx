@@ -11,10 +11,13 @@ const CREDITS: { role: string; members: string | readonly string[] }[] = [
   { role: "遊戲音效", members: "廣電四  許兆豐" },
   {
     role: "遊戲機制設計",
-    members: ["套圈圈：心理三  鄧伯希", "撈金魚：歷史四  吳尚鴻", "彈珠台：廣電四  許兆豐","射氣球：法律四  呂芃慧"],
+    members: ["套圈圈：心理三  鄧伯希", "撈金魚：歷史四  吳尚鴻", "彈珠台：廣電四  許兆豐", "射氣球：法律四  呂芃慧"],
   },
   { role: "前端架設", members: "歷史四  吳尚鴻  廣電四  許兆豐" },
   { role: "後端架設", members: "廣電四  許兆豐" },
+  { role: "海報設計", members: "心理三  鄧伯希" },
+  { role: "展示網頁", members: "歷史四  吳尚鴻" },
+  { role: "簡報與影片", members: "歷史四  吳尚鴻" },
   {
     role: "音樂素材",
     members: [
