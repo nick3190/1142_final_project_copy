@@ -29,7 +29,7 @@ function bColorAllPopped(
   const group = balloons.filter(
     (b) => b.zone === zone && b.area === "B" && b.color === color,
   );
-  return group.every((b) => !b.alive);
+  return group.length > 0 && group.every((b) => !b.alive);
 }
 
 /**

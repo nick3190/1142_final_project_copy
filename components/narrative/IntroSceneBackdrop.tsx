@@ -35,7 +35,10 @@ export default function IntroSceneBackdrop({
     if (prev === visual) return;
     prevVisualRef.current = visual;
 
+    const instant = crossfadeMs <= 0;
+
     const fadeInLayer = () => {
+      if (instant) return;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setLayers((current) =>
@@ -49,12 +52,21 @@ export default function IntroSceneBackdrop({
     };
 
     if (prev === null) {
+      if (instant) {
+        setLayers([{ key: visual, src, opacity: 1 }]);
+        return;
+      }
       setLayers([{ key: `${visual}-initial`, src, opacity: 0 }]);
       fadeInLayer();
       const cleanup = window.setTimeout(() => {
         setLayers([{ key: visual, src, opacity: 1 }]);
       }, crossfadeMs + 80);
       return () => clearTimeout(cleanup);
+    }
+
+    if (instant) {
+      setLayers([{ key: `${visual}-instant`, src, opacity: 1 }]);
+      return;
     }
 
     setLayers((current) => [
@@ -92,6 +104,26 @@ export default function IntroSceneBackdrop({
   }
 
   if (layers.length === 0) {
+    if (crossfadeMs <= 0) {
+      const instantSrc = introSceneSrc(visual);
+      if (instantSrc) {
+        return (
+          <div className="intro-scene-backdrop hub-world-bg">
+            <div className="intro-scene-backdrop__layer" style={{ opacity: 1, zIndex: 0 }}>
+              <Image
+                src={instantSrc}
+                alt=""
+                fill
+                unoptimized
+                priority
+                className="object-cover object-center hub-world-bg-image"
+                sizes="100vw"
+              />
+            </div>
+          </div>
+        );
+      }
+    }
     return <div className="intro-scene-backdrop hub-world-bg bg-black" />;
   }
 

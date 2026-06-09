@@ -154,6 +154,7 @@ function createBalloons(layout: BalloonLayoutData): Balloon[] {
     for (let row = 0; row < 2; row++) {
       for (let col = 0; col < 4; col++) {
         const idx = row * 4 + col;
+        const color = BALLOON_COLORS[idx % BALLOON_COLORS.length]!;
         const hook = bHookPosition(zone, row, col, layout);
         list.push({
           id: `${zone}-B-${idx}`,
@@ -161,7 +162,7 @@ function createBalloons(layout: BalloonLayoutData): Balloon[] {
           area: "B",
           bRow: row,
           bCol: col,
-          color: BALLOON_COLORS[(idx + zones.indexOf(zone)) % BALLOON_COLORS.length]!,
+          color,
           r,
           alive: true,
           x: hook.x,
@@ -480,14 +481,34 @@ export default function BalloonShootGame() {
 
   const popBalloon = useCallback(
     (b: Balloon, now: number, options?: { silent?: boolean }) => {
-      b.alive = false;
-      b.popStart = now;
-      if (options?.silent) return;
-      addScore(ZONE_HIT_SCORE[b.zone]);
-      if (b.area === "A") {
-        tryScoreAZone(b.zone);
+      const chainPop =
+        !options?.silent &&
+        advancedModeRef.current &&
+        b.area === "B" &&
+        advancedTargetColorsRef.current.includes(b.color);
+
+      const targets = chainPop
+        ? balloonsRef.current.filter(
+            (balloon) =>
+              balloon.alive &&
+              balloon.area === "B" &&
+              balloon.color === b.color,
+          )
+        : [b];
+
+      for (const balloon of targets) {
+        balloon.alive = false;
+        balloon.popStart = now;
+        if (options?.silent) continue;
+        addScore(ZONE_HIT_SCORE[balloon.zone]);
+        if (balloon.area === "A") {
+          tryScoreAZone(balloon.zone);
+        }
       }
-      tryAwardBalloonReward();
+
+      if (!options?.silent) {
+        tryAwardBalloonReward();
+      }
     },
     [addScore, tryAwardBalloonReward, tryScoreAZone],
   );
@@ -777,11 +798,17 @@ export default function BalloonShootGame() {
             resetGame();
           }}
           onReturnToMarket={() => {
-            clearStallRoundDismissed("balloonshoot");
-            returnToMarketAfterRound(router, {
-              stallId: "balloonshoot",
-              score: roundEnd?.score ?? 0,
-            });
+            const score = roundEnd?.score ?? 0;
+            returnToMarketAfterRound(
+              router,
+              { stallId: "balloonshoot", score },
+              () => {
+                gameOverRef.current = false;
+                roundEndHandledRef.current = false;
+                setGameOver(false);
+                setRoundEnd(null);
+              },
+            );
           }}
         />
       </div>

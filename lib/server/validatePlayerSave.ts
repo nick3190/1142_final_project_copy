@@ -1,5 +1,7 @@
 import type { EndingId } from "@/lib/endings/types";
-import type { SaveRecord } from "@/lib/player/saveTypes";
+import type { GameSnapshot } from "@/lib/player/saveSnapshot";
+import { normalizeSaveScores } from "@/lib/player/scoreTotals";
+import type { PlayerCloudPayload, SaveRecord } from "@/lib/player/saveTypes";
 import type { StallId } from "@/lib/narrative/types";
 
 const ENDING_IDS = new Set<EndingId>(["true", "basic", "stuck", "loop"]);
@@ -19,6 +21,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parsePlayHistory(raw: unknown): SaveRecord["playHistory"] {
+  if (!Array.isArray(raw)) return [];
+  const result: SaveRecord["playHistory"] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const stallId =
+      typeof item.stallId === "string" && STALL_IDS.has(item.stallId as StallId)
+        ? (item.stallId as StallId)
+        : null;
+    const score = typeof item.score === "number" && Number.isFinite(item.score) ? item.score : null;
+    const playedAt = typeof item.playedAt === "number" ? item.playedAt : Date.now();
+    if (!stallId || score === null) continue;
+    result.push({ stallId, score, playedAt });
+  }
+  return result;
+}
+
 function parseGameScores(raw: unknown): SaveRecord["gameScores"] {
   if (!isRecord(raw)) return {};
   const scores: SaveRecord["gameScores"] = {};
@@ -28,6 +47,50 @@ function parseGameScores(raw: unknown): SaveRecord["gameScores"] {
     scores[key as StallId] = value;
   }
   return scores;
+}
+
+function parseCharmSpawns(raw: unknown): GameSnapshot["charmSpawns"] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const id = typeof item.id === "string" ? item.id : "";
+      const stallId =
+        typeof item.stallId === "string" && STALL_IDS.has(item.stallId as StallId)
+          ? (item.stallId as StallId)
+          : null;
+      const itemId = typeof item.itemId === "string" ? item.itemId : "";
+      if (!id || !stallId || !itemId) return null;
+      return { id, stallId, itemId: itemId as GameSnapshot["charmSpawns"][number]["itemId"] };
+    })
+    .filter((item): item is GameSnapshot["charmSpawns"][number] => item !== null);
+}
+
+function parseRoadSpawns(raw: unknown): GameSnapshot["roadSpawns"] {
+  if (!Array.isArray(raw)) return [];
+  const result: GameSnapshot["roadSpawns"] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id : "";
+    const stallId =
+      typeof item.stallId === "string" && STALL_IDS.has(item.stallId as StallId)
+        ? (item.stallId as StallId)
+        : null;
+    const ticketType =
+      item.ticketType === "ticket10" || item.ticketType === "ticket50" ? item.ticketType : null;
+    const quantity = typeof item.quantity === "number" ? item.quantity : 0;
+    if (!id || !stallId || !ticketType || quantity <= 0) continue;
+    result.push({
+      id,
+      stallId,
+      worldOffsetX: typeof item.worldOffsetX === "number" ? item.worldOffsetX : 0,
+      worldRatio: typeof item.worldRatio === "number" ? item.worldRatio : undefined,
+      worldX: typeof item.worldX === "number" ? item.worldX : undefined,
+      ticketType,
+      quantity,
+    });
+  }
+  return result;
 }
 
 function parseSnapshot(raw: unknown): SaveRecord["snapshot"] | undefined {
@@ -53,7 +116,7 @@ function parseSnapshot(raw: unknown): SaveRecord["snapshot"] | undefined {
       typeof raw.pointCardSpawnStall === "string" && STALL_IDS.has(raw.pointCardSpawnStall as StallId)
         ? (raw.pointCardSpawnStall as StallId)
         : null,
-    charmSpawns: [],
+    charmSpawns: parseCharmSpawns(raw.charmSpawns),
     marketOpeningDone: raw.marketOpeningDone === true,
     boundaryIndex: typeof raw.boundaryIndex === "number" ? raw.boundaryIndex : 0,
     seenEndingId: typeof raw.seenEndingId === "string" ? raw.seenEndingId : null,
@@ -61,7 +124,7 @@ function parseSnapshot(raw: unknown): SaveRecord["snapshot"] | undefined {
     tokens: typeof raw.tokens === "number" ? raw.tokens : 0,
     ticket10: typeof raw.ticket10 === "number" ? raw.ticket10 : 0,
     ticket50: typeof raw.ticket50 === "number" ? raw.ticket50 : 0,
-    roadSpawns: [],
+    roadSpawns: parseRoadSpawns(raw.roadSpawns),
     hubPosition: typeof raw.hubPosition === "string" ? raw.hubPosition : null,
   };
 }
@@ -79,30 +142,64 @@ function parseSaveRecord(raw: unknown, nickname: string): SaveRecord | null {
 
   const updatedAt = typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now();
   const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : updatedAt;
+  const playHistory = parsePlayHistory(raw.playHistory);
+  const gameScores = parseGameScores(raw.gameScores);
 
-  return {
+  return normalizeSaveScores({
     saveId,
     nickname: saveNickname,
+    playHistory,
+    gameScores: gameScores && Object.keys(gameScores).length > 0 ? gameScores : undefined,
+    scorePenalty: typeof raw.scorePenalty === "number" ? Math.max(0, raw.scorePenalty) : 0,
     totalScore: typeof raw.totalScore === "number" ? raw.totalScore : 0,
-    gameScores: parseGameScores(raw.gameScores),
     endingId,
     isActive: raw.isActive === true,
     updatedAt,
     createdAt,
     snapshot: parseSnapshot(raw.snapshot),
-  };
+  });
 }
 
-export function parsePlayerSavePayload(body: unknown, nickname: string): SaveRecord[] | null {
+export type ParsedCloudPutBody = {
+  introDone: boolean;
+  activeSaveId: string | null;
+  saves: SaveRecord[];
+};
+
+export function parsePlayerSavePayload(body: unknown, nickname: string): ParsedCloudPutBody | null {
   if (!isRecord(body)) return null;
   if (!Array.isArray(body.saves) || body.saves.length > MAX_SAVES) return null;
 
-  const parsed = body.saves
+  const saves = body.saves
     .map((item) => parseSaveRecord(item, nickname))
     .filter((item): item is SaveRecord => item !== null);
 
-  if (parsed.length === 0) return null;
-  return parsed;
+  const introDone = body.introDone === true;
+  const activeSaveId =
+    typeof body.activeSaveId === "string" && body.activeSaveId.trim()
+      ? body.activeSaveId.trim()
+      : null;
+
+  return { introDone, activeSaveId, saves };
+}
+
+export function normalizeCloudPayload(raw: unknown, nickname: string): PlayerCloudPayload | null {
+  if (!isRecord(raw)) return null;
+
+  const saves = Array.isArray(raw.saves)
+    ? raw.saves
+        .map((item) => parseSaveRecord(item, nickname))
+        .filter((item): item is SaveRecord => item !== null)
+    : [];
+
+  return {
+    nickname,
+    introDone: raw.introDone === true,
+    activeSaveId:
+      typeof raw.activeSaveId === "string" && raw.activeSaveId.trim() ? raw.activeSaveId.trim() : null,
+    saves,
+    syncedAt: typeof raw.syncedAt === "number" ? raw.syncedAt : Date.now(),
+  };
 }
 
 export function assertBodySize(req: Request) {

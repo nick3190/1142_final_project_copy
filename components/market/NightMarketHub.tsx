@@ -108,7 +108,6 @@ export default function NightMarketHub() {
   const hasPointCard = useCollectibleStore((s) => s.hasAcquired("point-card"));
   const hydrateCollectibles = useCollectibleStore((s) => s.hydrate);
   const collectiblesHydrated = useCollectibleStore((s) => s.hydrated);
-  const nextBoundaryLine = useNarrativeStore((s) => s.nextBoundaryLine);
   const getText = useNarrativeStore((s) => s.getText);
   const hydrateTokens = useTokenStore((s) => s.hydrate);
   const tokensHydrated = useTokenStore((s) => s.hydrated);
@@ -299,6 +298,10 @@ export default function NightMarketHub() {
   }, []);
 
   useEffect(() => {
+    void usePlayerStore.getState().flushActiveSaveToCloud();
+  }, []);
+
+  useEffect(() => {
     sfxRef.current?.setWalking(playerAnim.walking);
   }, [playerAnim.walking]);
 
@@ -335,21 +338,17 @@ export default function NightMarketHub() {
     (nextX: number) => {
       const min = metrics.playerMinX;
       const max = metrics.playerMaxX;
-      if (nextX < min) {
-        setBoundaryMsg(nextBoundaryLine());
-        return min;
-      }
-      if (nextX > max) {
+      if (nextX < min || nextX > max) {
         if (!allStallsPlayed) {
           setBoundaryMsg("四個攤位都還沒玩完，現在還不能離開夜市。");
-          return max;
+          return nextX < min ? min : max;
         }
         setLeavePrompt(true);
-        return max;
+        return nextX < min ? min : max;
       }
       return nextX;
     },
-    [metrics.playerMinX, metrics.playerMaxX, nextBoundaryLine, allStallsPlayed],
+    [metrics.playerMinX, metrics.playerMaxX, allStallsPlayed],
   );
 
   useEffect(() => {

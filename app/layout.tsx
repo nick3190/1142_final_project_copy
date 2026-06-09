@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DotGothic16 } from "next/font/google";
 import "./globals.css";
 // [收集系統] 全域取得物品對話層；任意頁呼叫 acquireCollectible 時顯示
+import CloudSyncLifecycle from "@/components/navigation/CloudSyncLifecycle";
 import CollectibleProviders from "@/components/collectibles/CollectibleProviders";
 import GameLoadingOverlay from "@/components/navigation/GameLoadingOverlay";
 import PageFadeOverlay from "@/components/navigation/PageFadeOverlay";
@@ -31,6 +32,7 @@ export default function RootLayout({
         <GameLoadingOverlay />
         <UiSoundProvider />
         <CollectibleProviders />
+        <CloudSyncLifecycle />
       </body>
     </html>
   );

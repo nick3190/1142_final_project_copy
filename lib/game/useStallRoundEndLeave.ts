@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import type { StallId } from "@/lib/narrative/types";
 import {
@@ -13,6 +14,7 @@ export function useStallRoundEndLeave(
   roundComplete: boolean,
   onDismissRoundEnd: () => void,
 ) {
+  const pathname = usePathname();
   const roundCompleteRef = useRef(roundComplete);
   const onDismissRef = useRef(onDismissRoundEnd);
 
@@ -25,7 +27,7 @@ export function useStallRoundEndLeave(
       onDismissRef.current();
     });
     return () => cancelAnimationFrame(raf);
-  }, [stallId]);
+  }, [stallId, pathname]);
 
   useEffect(() => {
     const markLeave = () => {

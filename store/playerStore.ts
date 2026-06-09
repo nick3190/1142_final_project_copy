@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type { EndingId } from "@/lib/endings/types";
 import type { StallId } from "@/lib/narrative/types";
 import { getEndingScript } from "@/data/endings-default";
-import { flushCloudSync, mergeSaveRecords, scheduleCloudSync } from "@/lib/api/playerCloudSync";
+import { flushCloudSync, mergeSaveRecords, scheduleCloudSync, buildProfileForNickname, fetchCloudProfile, type CloudProfileResponse } from "@/lib/api/playerCloudSync";
 import { upsertLeaderboardEntry } from "@/lib/firebase/leaderboard";
 import {
   captureGameSnapshot,
@@ -12,6 +12,29 @@ import {
   restoreGameSnapshot,
 } from "@/lib/player/saveSnapshot";
 import type { GameScores, SaveRecord } from "@/lib/player/saveTypes";
+import { computeTotalScore, DIRECT_LEAVE_PENALTY, normalizeSaveScores } from "@/lib/player/scoreTotals";
+
+function readIntroDone(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const mod = require("@/store/narrativeStore") as typeof import("@/store/narrativeStore");
+    return mod.useNarrativeStore.getState().introDone;
+  } catch {
+    return false;
+  }
+}
+
+function writeIntroDone(introDone: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    const mod = require("@/store/narrativeStore") as typeof import("@/store/narrativeStore");
+    if (introDone) {
+      mod.useNarrativeStore.getState().completeIntro();
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 export type { GameScores, SaveRecord } from "@/lib/player/saveTypes";
 
@@ -47,21 +70,24 @@ function migratePersisted(raw: PersistedLegacy & Partial<PersistedV2>): Persiste
     return {
       loggedInNickname: raw.loggedInNickname ?? null,
       activeSaveId: raw.activeSaveId ?? null,
-      saves: raw.saves,
+      saves: raw.saves.map((save) => normalizeSaveScores(save as SaveRecord)),
     };
   }
 
   const legacyRecords = raw.records ?? [];
-  const saves: SaveRecord[] = legacyRecords.map((r) => ({
-    saveId: `legacy-${r.nickname}`,
-    nickname: r.nickname,
-    totalScore: r.totalScore,
-    gameScores: r.gameScores,
-    endingId: r.endingId,
-    isActive: r.isActive,
-    updatedAt: r.updatedAt,
-    createdAt: r.updatedAt,
-  }));
+  const saves: SaveRecord[] = legacyRecords.map((r) =>
+    normalizeSaveScores({
+      saveId: `legacy-${r.nickname}`,
+      nickname: r.nickname,
+      playHistory: [],
+      gameScores: r.gameScores,
+      totalScore: r.totalScore,
+      endingId: r.endingId,
+      isActive: r.isActive,
+      updatedAt: r.updatedAt,
+      createdAt: r.updatedAt,
+    }),
+  );
 
   const activeNickname = raw.activeNickname ?? null;
   const activeSaveId =
@@ -112,7 +138,7 @@ function upsertSave(saves: SaveRecord[], next: SaveRecord): SaveRecord[] {
 }
 
 function saveHasGameplayProgress(record: SaveRecord): boolean {
-  return Object.keys(record.gameScores).length > 0 || record.totalScore > 0;
+  return record.playHistory.length > 0 || record.totalScore > 0;
 }
 
 function shouldBackfillSnapshot(record: SaveRecord): boolean {
@@ -121,25 +147,46 @@ function shouldBackfillSnapshot(record: SaveRecord): boolean {
   return isInitialGameSnapshot(record.snapshot);
 }
 
-function nicknamesToSync(state: {
+function cloudProfileFromState(state: {
   loggedInNickname: string | null;
   activeSaveId: string | null;
   saves: SaveRecord[];
 }) {
-  const names = new Set<string>();
-  if (state.loggedInNickname) names.add(state.loggedInNickname.trim());
-  if (state.activeSaveId) {
-    const active = state.saves.find((s) => s.saveId === state.activeSaveId);
-    if (active?.nickname) names.add(active.nickname.trim());
+  const nickname = state.loggedInNickname?.trim();
+  if (!nickname) return null;
+  const introDone = readIntroDone();
+  return buildProfileForNickname(nickname, state.saves, introDone, state.activeSaveId);
+}
+
+function consumePendingDirectLeavePenalty(): boolean {
+  try {
+    const mod = require("@/store/narrativeStore") as typeof import("@/store/narrativeStore");
+    return mod.useNarrativeStore.getState().consumePendingDirectLeavePenalty();
+  } catch {
+    return false;
   }
-  return [...names].filter(Boolean);
+}
+
+function applyIntroDoneFromCloud(introDone: boolean) {
+  writeIntroDone(introDone);
+}
+
+function applyScorePenaltyToRecord(record: SaveRecord, amount: number): SaveRecord {
+  const scorePenalty = (record.scorePenalty ?? 0) + amount;
+  const totalScore = computeTotalScore(record.playHistory, record.endingId, scorePenalty);
+  return {
+    ...record,
+    scorePenalty,
+    totalScore,
+    updatedAt: Date.now(),
+  };
 }
 
 function persistSaves(state: { loggedInNickname: string | null; activeSaveId: string | null; saves: SaveRecord[] }) {
   savePersisted(state);
-  for (const nickname of nicknamesToSync(state)) {
-    scheduleCloudSync(nickname, state.saves);
-  }
+  const profile = cloudProfileFromState(state);
+  if (!profile || !state.loggedInNickname) return;
+  scheduleCloudSync(state.loggedInNickname.trim(), profile);
 }
 
 async function persistSavesImmediate(state: {
@@ -148,8 +195,12 @@ async function persistSavesImmediate(state: {
   saves: SaveRecord[];
 }) {
   savePersisted(state);
-  await Promise.all(nicknamesToSync(state).map((nickname) => flushCloudSync(nickname, state.saves)));
+  const profile = cloudProfileFromState(state);
+  if (!profile || !state.loggedInNickname) return false;
+  return flushCloudSync(state.loggedInNickname.trim(), profile);
 }
+
+let cloudSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function endingLabel(id: EndingId | null): string {
   if (!id) return "—";
@@ -165,17 +216,23 @@ type PlayerStore = {
   login: (nickname: string) => void;
   logout: () => void;
   mergeCloudSaves: (nickname: string, cloudSaves: SaveRecord[]) => void;
+  applyCloudProfile: (nickname: string, cloud: CloudProfileResponse) => void;
+  syncProfileFromCloud: (
+    nickname: string,
+  ) => Promise<{ ok: true } | { ok: false; reason: "invalid_nickname" | "not_configured" }>;
   getPlayerSaves: (nickname: string) => SaveRecord[];
   getActiveSave: () => SaveRecord | undefined;
   findRecord: (nickname: string) => SaveRecord | undefined;
   getLeaderboard: () => SaveRecord[];
   snapshotActiveSave: () => void;
-  flushActiveSaveToCloud: () => Promise<void>;
+  scheduleCloudSnapshot: () => void;
+  flushActiveSaveToCloud: () => Promise<boolean>;
   createNewSave: (nickname: string) => string;
   loadSave: (saveId: string) => void;
   beginNewRun: (nickname: string) => void;
   resumeRun: (nickname: string) => void;
   recordStallScore: (stallId: StallId, score: number) => void;
+  addScorePenalty: (amount: number) => void;
   finishRun: (endingId: EndingId) => void;
 };
 
@@ -191,7 +248,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       hydrated: true,
       loggedInNickname: p.loggedInNickname,
       activeSaveId: p.activeSaveId,
-      saves: p.saves,
+      saves: p.saves.map(normalizeSaveScores),
     });
   },
 
@@ -210,21 +267,65 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   mergeCloudSaves: (nickname, cloudSaves) => {
+    get().applyCloudProfile(nickname, {
+      configured: true,
+      saves: cloudSaves,
+      introDone: readIntroDone(),
+      activeSaveId: get().activeSaveId,
+      syncedAt: Date.now(),
+    });
+  },
+
+  applyCloudProfile: (nickname, cloud) => {
     const trimmed = nickname.trim();
-    if (!trimmed || cloudSaves.length === 0) return;
+    if (!trimmed || !cloud.configured) return;
 
     const local = get().saves.filter((save) => save.nickname === trimmed);
-    const mergedForPlayer = mergeSaveRecords(local, cloudSaves);
+    const mergedForPlayer = mergeSaveRecords(local, cloud.saves);
     const otherSaves = get().saves.filter((save) => save.nickname !== trimmed);
     const saves = [...otherSaves, ...mergedForPlayer];
 
+    applyIntroDoneFromCloud(cloud.introDone);
+
+    const activeSaveId =
+      cloud.activeSaveId && mergedForPlayer.some((s) => s.saveId === cloud.activeSaveId)
+        ? cloud.activeSaveId
+        : get().activeSaveId;
+
     const state = {
-      loggedInNickname: get().loggedInNickname,
-      activeSaveId: get().activeSaveId,
+      loggedInNickname: trimmed,
+      activeSaveId,
       saves,
     };
-    set({ saves });
-    persistSaves(state);
+    set(state);
+    savePersisted(state);
+  },
+
+  syncProfileFromCloud: async (nickname) => {
+    const trimmed = nickname.trim();
+    if (!trimmed) return { ok: false as const, reason: "invalid_nickname" as const };
+
+    const cloud = await fetchCloudProfile(trimmed);
+    if (!cloud.configured) return { ok: false as const, reason: "not_configured" as const };
+
+    const hasCloudData = cloud.saves.length > 0 || cloud.introDone;
+    if (hasCloudData) {
+      get().applyCloudProfile(trimmed, cloud);
+      return { ok: true as const };
+    }
+
+    set({ loggedInNickname: trimmed });
+    savePersisted({
+      loggedInNickname: trimmed,
+      activeSaveId: get().activeSaveId,
+      saves: get().saves,
+    });
+    await persistSavesImmediate({
+      loggedInNickname: trimmed,
+      activeSaveId: get().activeSaveId,
+      saves: get().saves,
+    });
+    return { ok: true as const };
   },
 
   flushActiveSaveToCloud: async () => {
@@ -234,7 +335,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       activeSaveId: get().activeSaveId,
       saves: get().saves,
     };
-    await persistSavesImmediate(state);
+    return persistSavesImmediate(state);
   },
 
   getPlayerSaves: (nickname) => {
@@ -261,6 +362,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
       return b.updatedAt - a.updatedAt;
     }),
+
+  scheduleCloudSnapshot: () => {
+    if (cloudSnapshotTimer) clearTimeout(cloudSnapshotTimer);
+    cloudSnapshotTimer = setTimeout(() => {
+      cloudSnapshotTimer = null;
+      get().snapshotActiveSave();
+      void get().flushActiveSaveToCloud();
+    }, 600);
+  },
 
   snapshotActiveSave: () => {
     const saveId = get().activeSaveId;
@@ -290,11 +400,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const trimmed = nickname.trim();
     const now = Date.now();
     const saveId = createSaveId();
+    const scorePenalty = consumePendingDirectLeavePenalty() ? DIRECT_LEAVE_PENALTY : 0;
     const record: SaveRecord = {
       saveId,
       nickname: trimmed,
-      totalScore: 0,
-      gameScores: {},
+      playHistory: [],
+      scorePenalty,
+      totalScore: computeTotalScore([], null, scorePenalty),
       endingId: null,
       isActive: true,
       updatedAt: now,
@@ -364,16 +476,41 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const existing = get().saves.find((s) => s.saveId === saveId);
     if (!existing) return;
 
-    const gameScores = { ...existing.gameScores, [stallId]: score };
-    const totalScore = Object.values(gameScores).reduce((sum, v) => sum + (v ?? 0), 0);
+    const playHistory = [
+      ...existing.playHistory,
+      { stallId, score, playedAt: Date.now() },
+    ];
+    const totalScore = computeTotalScore(
+      playHistory,
+      existing.endingId,
+      existing.scorePenalty ?? 0,
+    );
     const record: SaveRecord = {
       ...existing,
-      gameScores,
+      playHistory,
       totalScore,
       isActive: true,
       updatedAt: Date.now(),
       snapshot: captureGameSnapshot(),
     };
+    const saves = upsertSave(get().saves, record);
+    const state = {
+      loggedInNickname: get().loggedInNickname,
+      activeSaveId: get().activeSaveId,
+      saves,
+    };
+    set({ saves });
+    persistSaves(state);
+    syncToFirebase(record);
+  },
+
+  addScorePenalty: (amount) => {
+    const saveId = get().activeSaveId;
+    if (!saveId || amount <= 0) return;
+    const existing = get().saves.find((s) => s.saveId === saveId);
+    if (!existing) return;
+
+    const record = applyScorePenaltyToRecord(existing, amount);
     const saves = upsertSave(get().saves, record);
     const state = {
       loggedInNickname: get().loggedInNickname,
@@ -392,9 +529,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (!existing) return;
 
     const snapshot = captureGameSnapshot();
+    const totalScore = computeTotalScore(
+      existing.playHistory,
+      endingId,
+      existing.scorePenalty ?? 0,
+    );
     const record: SaveRecord = {
       ...existing,
       endingId,
+      totalScore,
       isActive: false,
       updatedAt: Date.now(),
       snapshot,

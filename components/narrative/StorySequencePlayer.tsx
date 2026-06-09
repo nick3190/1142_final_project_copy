@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { EndingId } from "@/lib/endings/types";
 import {
   leaveToiletAmbience,
   playWashHandsSequence,
 } from "@/lib/narrative/introSounds";
+import { applyDirectLeavePenalty } from "@/lib/player/applyDirectLeavePenalty";
 import type { BackdropEffect, StoryButton, StoryLine } from "@/lib/narrative/types";
 import { useIntroLineSounds } from "@/lib/narrative/useIntroLineSounds";
 import { useStoryAdvance } from "@/lib/useStoryAdvance";
@@ -62,13 +63,19 @@ export default function StorySequencePlayer({
   const [backdropEffect, setBackdropEffect] = useState<BackdropEffect>("none");
   const [endingSlide, setEndingSlide] = useState(0);
   const [buttonBusy, setButtonBusy] = useState(false);
+  const [backdropInstantSwap, setBackdropInstantSwap] = useState(false);
+  const [holdBlackScreen, setHoldBlackScreen] = useState(false);
+  const onCompleteCalledRef = useRef(false);
 
   const line = lines[index];
   useIntroLineSounds(line, !endingId);
 
   const advance = useCallback(() => {
     if (index >= lines.length - 1) {
-      onComplete();
+      if (!onCompleteCalledRef.current) {
+        onCompleteCalledRef.current = true;
+        onComplete();
+      }
       return;
     }
     setIndex((i) => i + 1);
@@ -102,13 +109,6 @@ export default function StorySequencePlayer({
         setBackdropEffect("none");
       }
       if (line.transition === "fade-reveal" && line.reveals) {
-        setVisual({
-          type: "visual",
-          id: `${line.id}-prep`,
-          visual: line.reveals,
-        });
-      }
-      if (line.transition === "fade-glowing" && line.reveals) {
         setVisual({
           type: "visual",
           id: `${line.id}-prep`,
@@ -162,6 +162,12 @@ export default function StorySequencePlayer({
   const activeVisualLine =
     line.type === "visual" ? line : visual?.type === "visual" ? visual : null;
   const sceneDim = activeVisualLine?.dim ?? false;
+  const backdropCrossfadeMs = backdropInstantSwap ? 0 : sceneFadeMs;
+
+  useLayoutEffect(() => {
+    if (!backdropInstantSwap) return;
+    setBackdropInstantSwap(false);
+  }, [backdropInstantSwap, index, currentVisual]);
 
   const handleButton = async (action: StoryButton["action"]) => {
     if (buttonBusy) return;
@@ -183,6 +189,7 @@ export default function StorySequencePlayer({
     if (!endingId && action === "leave-toilet") {
       setButtonBusy(true);
       onAction?.(action);
+      applyDirectLeavePenalty();
       await leaveToiletAmbience();
       setButtonBusy(false);
       advance();
@@ -220,19 +227,26 @@ export default function StorySequencePlayer({
   const showBlackout = line.type === "blackout";
   const hideBackdrop =
     showBlackout ||
+    holdBlackScreen ||
     activeTransition?.transition === "fade-reveal" ||
+    activeTransition?.transition === "fade-glowing" ||
+    activeTransition?.transition === "fade-dark" ||
     activeTransition?.transition === "flash-transition";
 
   const finishIntroTransition = () => {
     if (!activeTransition) return;
-    setTransition(null);
     if (activeTransition.reveals) {
+      setBackdropInstantSwap(true);
       setVisual({
         type: "visual",
         id: `${activeTransition.id}-reveal`,
         visual: activeTransition.reveals,
       });
     }
+    if (activeTransition.transition === "fade-dark") {
+      setHoldBlackScreen(true);
+    }
+    setTransition(null);
     advance();
   };
 
@@ -258,7 +272,7 @@ export default function StorySequencePlayer({
           <FirstPersonView
             visual={currentVisual}
             effect={backdropEffect}
-            crossfadeMs={sceneFadeMs}
+            crossfadeMs={backdropCrossfadeMs}
             dim={sceneDim}
           />
         )}
@@ -268,12 +282,20 @@ export default function StorySequencePlayer({
         <IntroTransition
           kind={activeTransition.transition}
           reveals={activeTransition.reveals}
-          overlay={activeTransition.transition !== "fade-reveal"}
+          overlay={
+            activeTransition.transition !== "fade-reveal" &&
+            activeTransition.transition !== "fade-glowing" &&
+            activeTransition.transition !== "fade-dark"
+          }
           onDone={finishIntroTransition}
         />
       )}
 
-      {!endingId && <HubSceneOverlay />}
+      {holdBlackScreen && (
+        <div className="absolute inset-0 z-[85] bg-black pointer-events-none" aria-hidden />
+      )}
+
+      {!endingId && !useIntroOverlay && <HubSceneOverlay />}
 
       {showBlackout && <div className="absolute inset-0 z-[12] bg-black" aria-hidden />}
 

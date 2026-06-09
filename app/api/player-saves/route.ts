@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mergeSaveRecords, readPlayerSaves, writePlayerSaves } from "@/lib/server/playerSaveStore";
+import { mergeSaveRecords, readPlayerSaves, writePlayerProfile } from "@/lib/server/playerSaveStore";
 import { isRedisConfigured } from "@/lib/server/redis";
 import {
   assertBodySize,
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   if (!isRedisConfigured()) {
-    return NextResponse.json({ configured: false, saves: [] });
+    return NextResponse.json({ configured: false, saves: [], introDone: false, activeSaveId: null });
   }
 
   const nickname = normalizeNickname(new URL(req.url).searchParams.get("nickname"));
@@ -24,6 +24,8 @@ export async function GET(req: Request) {
     configured: true,
     nickname,
     saves: payload?.saves ?? [],
+    introDone: payload?.introDone ?? false,
+    activeSaveId: payload?.activeSaveId ?? null,
     syncedAt: payload?.syncedAt ?? null,
   });
 }
@@ -63,13 +65,19 @@ export async function PUT(req: Request) {
   }
 
   const existing = await readPlayerSaves(nickname);
-  const merged = mergeSaveRecords(incoming, existing?.saves ?? []);
-  const payload = await writePlayerSaves(nickname, merged);
+  const mergedSaves = mergeSaveRecords(incoming.saves, existing?.saves ?? []);
+  const payload = await writePlayerProfile(nickname, {
+    introDone: incoming.introDone || (existing?.introDone ?? false),
+    activeSaveId: incoming.activeSaveId ?? existing?.activeSaveId ?? null,
+    saves: mergedSaves,
+  });
 
   return NextResponse.json({
     ok: true,
     nickname,
     saves: payload.saves,
+    introDone: payload.introDone,
+    activeSaveId: payload.activeSaveId,
     syncedAt: payload.syncedAt,
   });
 }

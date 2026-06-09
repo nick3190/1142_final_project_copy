@@ -25,6 +25,7 @@
 
 "use client";
 
+import { usePlayerStore } from "@/store/playerStore";
 import { create } from "zustand";
 import { collectiblesDefault, getCollectibleDef } from "@/data/collectibles-default";
 import type {
@@ -66,6 +67,11 @@ function loadPersisted(): Persisted {
 function savePersisted(data: Persisted) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function persistAndSync(data: Persisted) {
+  savePersisted(data);
+  usePlayerStore.getState().scheduleCloudSnapshot();
 }
 
 type CollectibleStore = {
@@ -172,7 +178,7 @@ export const useCollectibleStore = create<CollectibleStore>((set, get) => ({
     });
 
     const p = loadPersisted();
-    savePersisted({ ...p, acquired });
+    persistAndSync({ ...p, acquired });
 
     return { success: true, itemId: id };
   },
@@ -183,7 +189,7 @@ export const useCollectibleStore = create<CollectibleStore>((set, get) => ({
     const nextSelected = get().selectedId === id ? null : get().selectedId;
     set({ acquired, selectedId: nextSelected });
     const p = loadPersisted();
-    savePersisted({ ...p, acquired });
+    persistAndSync({ ...p, acquired });
     return true;
   },
 

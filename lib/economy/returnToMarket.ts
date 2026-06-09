@@ -2,6 +2,7 @@
 
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { spawnFortuneSlipAfterRound } from "@/lib/collectibles/spawnFortuneSlip";
+import { markStallRoundDismissed } from "@/lib/game/stallRoundLeave";
 import { saveHubReturnPositionFromGame } from "@/lib/market/hubPlayerPosition";
 import { navigateWithFade } from "@/lib/navigation/navigateWithFade";
 import type { StallId } from "@/lib/narrative/types";
@@ -29,7 +30,10 @@ type RoundReturnOptions = {
 export async function returnToMarketAfterRound(
   router: AppRouterInstance,
   options: RoundReturnOptions,
+  onBeforeNavigate?: () => void,
 ) {
+  markStallRoundDismissed(options.stallId);
+  onBeforeNavigate?.();
   const state = useTokenStore.getState();
   if (!state.hydrated) state.hydrate();
   await state.spawnRoadLottery();

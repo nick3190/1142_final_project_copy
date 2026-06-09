@@ -1,16 +1,17 @@
 import { INTERACTIVE_ORDER } from "@/lib/market/hubLayout";
 import type { EndingId } from "@/lib/endings/types";
 import type { StallId } from "@/lib/narrative/types";
-import type { GameScores } from "@/store/playerStore";
+import type { StallPlayScore } from "@/lib/player/saveTypes";
 
 const STALL_COUNT = INTERACTIVE_ORDER.length;
 
 export function formatSaveProgress(
-  gameScores: GameScores,
+  playHistory: StallPlayScore[],
   endingId: EndingId | null,
   isActive: boolean,
 ): string {
-  const played = INTERACTIVE_ORDER.filter((s) => gameScores[s.id] !== undefined);
+  const playedStallIds = new Set(playHistory.map((entry) => entry.stallId));
+  const played = INTERACTIVE_ORDER.filter((s) => playedStallIds.has(s.id));
   const stallNames = played.map((s) => s.label).join("、");
   const count = played.length;
 

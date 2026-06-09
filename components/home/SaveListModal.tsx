@@ -72,7 +72,7 @@ export default function SaveListModal({
                   </div>
                   <dl className="save-list-modal__meta grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 text-sm leading-relaxed">
                     <dt>遊戲進度</dt>
-                    <dd>{formatSaveProgress(save.gameScores, save.endingId, save.isActive)}</dd>
+                    <dd>{formatSaveProgress(save.playHistory, save.endingId, save.isActive)}</dd>
                     <dt>總分數</dt>
                     <dd className="tabular-nums">{save.totalScore}</dd>
                     <dt>結局</dt>

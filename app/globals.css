@@ -217,6 +217,31 @@ body {
   color: var(--ink);
 }
 
+.home-modal__credits {
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+}
+
+.home-modal__credits-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.home-modal__credits-role {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  opacity: 0.88;
+}
+
+.home-modal__credits-members {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: var(--ink);
+}
+
 /* ----- 存檔列表 modal ----- */
 .save-list-modal {
   color: var(--ink);
@@ -3165,8 +3190,14 @@ body.game-loading-active {
   }
 }
 
+.intro-transition {
+  --intro-transition-duration: 0.2s;
+  --intro-glow-crossfade-duration: 3s;
+}
+
 .intro-transition__glitch-overlay,
 .intro-transition__reveal-scene,
+.intro-transition__glow-from,
 .intro-transition__glow-to,
 .intro-transition__flash {
   position: absolute;
@@ -3300,15 +3331,15 @@ body.game-loading-active {
 }
 
 .intro-transition__flash {
-  animation: intro-flash-hold 0.5s ease-out forwards;
+  animation: intro-flash-hold var(--intro-transition-duration) ease-out forwards;
 }
 
 .intro-transition__reveal-image {
   opacity: 0;
   filter: blur(16px) saturate(0.7);
   animation:
-    intro-reveal-fade 0.5s ease-out forwards,
-    intro-reveal-unblur 0.5s ease-out forwards;
+    intro-reveal-fade var(--intro-transition-duration) ease-out forwards,
+    intro-reveal-unblur var(--intro-transition-duration) ease-out forwards;
 }
 
 .intro-transition__blackout {
@@ -3318,15 +3349,20 @@ body.game-loading-active {
   animation: intro-blackout-in 0.75s ease-in forwards;
 }
 
+.intro-transition__glow-from {
+  overflow: hidden;
+  animation: intro-glow-from-out var(--intro-glow-crossfade-duration) ease-in-out forwards;
+}
+
 .intro-transition__glow-to {
-  opacity: 0;
-  animation: intro-glow-crossfade 0.5s ease-in-out forwards;
+  overflow: hidden;
+  animation: intro-glow-to-in var(--intro-glow-crossfade-duration) ease-in-out forwards;
 }
 
 .intro-transition--fade-dark {
   background: #000;
   opacity: 0;
-  animation: intro-fade-dark-in 0.5s ease-in forwards;
+  animation: intro-fade-dark-in var(--intro-transition-duration) ease-in forwards;
 }
 
 @keyframes intro-fade-dark-in {
@@ -3509,13 +3545,57 @@ body.game-loading-active {
   }
 }
 
-@keyframes intro-glow-crossfade {
-  from {
-    opacity: 0;
+@keyframes intro-glow-from-out {
+  0% {
+    opacity: 1;
+    filter: blur(0);
   }
 
-  to {
+  40% {
+    opacity: 0.85;
+    filter: blur(6px);
+  }
+
+  50% {
+    opacity: 0.55;
+    filter: blur(14px);
+  }
+
+  60% {
+    opacity: 0.25;
+    filter: blur(18px);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(22px);
+  }
+}
+
+@keyframes intro-glow-to-in {
+  0% {
+    opacity: 0;
+    filter: blur(22px);
+  }
+
+  40% {
+    opacity: 0.25;
+    filter: blur(18px);
+  }
+
+  50% {
+    opacity: 0.55;
+    filter: blur(14px);
+  }
+
+  60% {
+    opacity: 0.85;
+    filter: blur(6px);
+  }
+
+  100% {
     opacity: 1;
+    filter: blur(0);
   }
 }
 

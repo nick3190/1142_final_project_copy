@@ -101,13 +101,15 @@ function getChargeTier(ratio: number): ChargeTier {
 const MAX_CHARGE_MS = 2000;
 const GRAVITY = 0.2 * PHYSICS_SCALE;
 const DRAG = 0.996;
-const BOUNCE = 0.32;
-const WALL_BOUNCE_DAMP = 0.55;
-const LOW_OBSTACLE_RESTITUTION = 0.44;
-const ROUND_OBSTACLE_RESTITUTION = 0.5;
-const SCORE_OBSTACLE_RESTITUTION = 0.58;
-const TRIANGLE_OBSTACLE_RESTITUTION = 0.62;
+/** 牆面／木軌碰撞恢復係數（1 = 無碰撞能量損失） */
+const WALL_RESTITUTION = 0.94;
+const CHANNEL_SEGMENT_RESTITUTION = 0.94;
+const LOW_OBSTACLE_RESTITUTION = 0.92;
+const ROUND_OBSTACLE_RESTITUTION = 0.97;
+const SCORE_OBSTACLE_RESTITUTION = 0.96;
+const TRIANGLE_OBSTACLE_RESTITUTION = 0.92;
 const LINE_COLLISION_PUSH = 0.28 * PHYSICS_SCALE;
+const ROUND_COLLISION_PUSH = 0.18 * PHYSICS_SCALE;
 const MAX_BOUNCE_SPEED = 7.5 * PHYSICS_SCALE;
 const LOW_TIER_MAX = 0.34;
 const MID_TIER_MAX = 0.74;
@@ -379,16 +381,16 @@ export default function PinballGame() {
       const top = PLAYFIELD_CEILING + ball.radius;
       if (ball.pos.x < left) {
         ball.pos.x = left;
-        ball.vel.x = Math.abs(ball.vel.x) * BOUNCE * WALL_BOUNCE_DAMP;
+        ball.vel.x = -ball.vel.x * WALL_RESTITUTION;
         sfx.playBump();
       } else if (ball.pos.x > right) {
         ball.pos.x = right;
-        ball.vel.x = -Math.abs(ball.vel.x) * BOUNCE * WALL_BOUNCE_DAMP;
+        ball.vel.x = -ball.vel.x * WALL_RESTITUTION;
         sfx.playBump();
       }
       if (ball.pos.y < top) {
         ball.pos.y = top;
-        ball.vel.y = Math.abs(ball.vel.y) * BOUNCE * WALL_BOUNCE_DAMP;
+        ball.vel.y = -ball.vel.y * WALL_RESTITUTION;
         sfx.playBump();
       }
     };
@@ -405,8 +407,8 @@ export default function PinballGame() {
       ball.pos.x = c.x + n.x * (ball.radius + 1.5);
       ball.pos.y = c.y + n.y * (ball.radius + 1.5);
       ball.vel = reflect(ball.vel, n);
-      ball.vel.x *= 0.48;
-      ball.vel.y *= 0.48;
+      ball.vel.x *= CHANNEL_SEGMENT_RESTITUTION;
+      ball.vel.y *= CHANNEL_SEGMENT_RESTITUTION;
       flashesRef.current.push({ x: c.x, y: c.y, r: 24, life: 1, color: "255,220,120" });
       sfx.playBump();
       return true;
@@ -418,7 +420,7 @@ export default function PinballGame() {
         if (Math.abs(ball.pos.x - x) < ball.radius + 2) {
           const dir = ball.pos.x < x ? -1 : 1;
           ball.pos.x = x + dir * (ball.radius + 2);
-          ball.vel.x = dir * Math.abs(ball.vel.x) * 0.38;
+          ball.vel.x = -ball.vel.x * CHANNEL_SEGMENT_RESTITUTION;
           flashesRef.current.push({ x, y: ball.pos.y, r: 14, life: 1, color: "255,210,100" });
           sfx.playBump();
         }
@@ -443,8 +445,8 @@ export default function PinballGame() {
       ball.pos.x = cx + n.x * (R + ball.radius + 1.5);
       ball.pos.y = cy + n.y * (R + ball.radius + 1.5);
       ball.vel = reflect(ball.vel, n);
-      ball.vel.x *= 0.5;
-      ball.vel.y *= 0.5;
+      ball.vel.x *= CHANNEL_SEGMENT_RESTITUTION;
+      ball.vel.y *= CHANNEL_SEGMENT_RESTITUTION;
       flashesRef.current.push({ x: ball.pos.x, y: ball.pos.y, r: 20, life: 1, color: "255,220,120" });
       sfx.playBump();
     };
@@ -529,6 +531,10 @@ export default function PinballGame() {
             ball.vel.x += res.normal.x * LINE_COLLISION_PUSH;
             ball.vel.y += res.normal.y * LINE_COLLISION_PUSH;
           }
+          if (obs.kind === "round") {
+            ball.vel.x += res.normal.x * ROUND_COLLISION_PUSH;
+            ball.vel.y += res.normal.y * ROUND_COLLISION_PUSH;
+          }
           if (bouncy) {
             const speed = Math.hypot(ball.vel.x, ball.vel.y);
             if (speed > MAX_BOUNCE_SPEED) {
@@ -555,10 +561,10 @@ export default function PinballGame() {
       }
     };
 
-    const channelRewardLabel = (lane: number, bonusGain?: number) => {
+    const channelRewardLabel = (lane: number, bonusGain?: number, gotItem = false) => {
       if (lane === 0) return "彈珠+1";
       if (lane === 1) return "÷2";
-      if (lane === 2) return hasCollectible("rust-coin") ? "無" : "銅幣";
+      if (lane === 2) return gotItem ? "銅幣" : null;
       if (lane === 3) return `+${bonusGain ?? CHANNEL_BONUS_POINTS}分`;
       if (lane === 4) return `-${CHANNEL_PENALTY_POINTS}分`;
       return "×2";
@@ -568,6 +574,7 @@ export default function PinballGame() {
       const lane = channelLaneFromX(ball.pos.x);
       const prevScore = scoreRef.current;
       let bonusGain = 0;
+      let gotItem = false;
       if (lane === 0) {
         ballsRef.current += 1;
         setBalls(ballsRef.current);
@@ -578,6 +585,7 @@ export default function PinballGame() {
           const reward = awardStallReward("pinball");
           if (reward.success) {
             stallRewardGrantedRef.current = true;
+            gotItem = true;
           }
         }
       } else if (lane === 3) {
@@ -591,9 +599,12 @@ export default function PinballGame() {
       const gained = scoreRef.current - prevScore;
       roundScoreRef.current += gained;
       setScore(scoreRef.current);
-      const msg = channelRewardLabel(lane, bonusGain);
+      const msg = channelRewardLabel(lane, bonusGain, gotItem);
       flashScore(lane === 4 ? "down" : "up");
-      showRewardNotice(msg);
+      if (msg) {
+        showRewardNotice(msg);
+        setStatus(msg);
+      }
       runDoneRef.current = true;
       ball.launched = false;
       ball.vel = { x: 0, y: 0 };
@@ -612,7 +623,6 @@ export default function PinballGame() {
       }
 
       ball.pos = { x: -999, y: -999 };
-      setStatus(msg);
       sfx.playScore();
       flashesRef.current.push({
         x: laneCx,
@@ -916,8 +926,17 @@ export default function PinballGame() {
           resetGameRef.current();
         }}
         onReturnToMarket={() => {
-          clearStallRoundDismissed("pinball");
-          returnToMarketAfterRound(router, { stallId: "pinball", score: roundEnd?.score ?? 0 });
+          const score = roundEnd?.score ?? 0;
+          returnToMarketAfterRound(
+            router,
+            { stallId: "pinball", score },
+            () => {
+              gameOverRef.current = false;
+              roundEndHandledRef.current = false;
+              setGameOver(false);
+              setRoundEnd(null);
+            },
+          );
         }}
       />
     </main>

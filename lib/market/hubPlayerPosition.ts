@@ -1,9 +1,18 @@
+"use client";
+
 import { HUB_LAYOUT, ROAD_LEFT_RATIO, ROAD_RIGHT_RATIO } from "@/lib/market/hubLayout";
 import type { StallId } from "@/lib/narrative/types";
+import { usePlayerStore } from "@/store/playerStore";
 
 const STORAGE_KEY = "night-market-hub-player-x-ratio";
 
 type Saved = { ratio: number; stallId?: StallId };
+
+function writeHubPosition(payload: Saved) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  usePlayerStore.getState().scheduleCloudSnapshot();
+}
 
 const GAME_PATH_TO_STALL: Record<string, StallId> = {
   "/pinball": "pinball",
@@ -25,8 +34,7 @@ export function saveHubPlayerPositionAtStall(stallId: StallId) {
   if (typeof window === "undefined") return;
   const ratio = stallPlayerRatio(stallId);
   if (ratio === null) return;
-  const payload: Saved = { ratio, stallId };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  writeHubPosition({ ratio, stallId });
 }
 
 export function saveHubReturnPositionFromGame(pathname: string) {
@@ -38,8 +46,7 @@ export function saveHubReturnPositionFromGame(pathname: string) {
 /** 依世界寬度比例儲存，視窗縮放後仍能還原到相同相對位置 */
 export function saveHubPlayerPosition(playerX: number, worldWidth: number) {
   if (typeof window === "undefined" || worldWidth <= 0) return;
-  const payload: Saved = { ratio: playerX / worldWidth };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  writeHubPosition({ ratio: playerX / worldWidth });
 }
 
 export function readHubPlayerPosition(worldWidth: number): number | null {
@@ -58,4 +65,5 @@ export function readHubPlayerPosition(worldWidth: number): number | null {
 export function clearHubPlayerPosition() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEY);
+  usePlayerStore.getState().scheduleCloudSnapshot();
 }

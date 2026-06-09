@@ -330,7 +330,7 @@ function RingTossGameInner() {
     redMessageRef.current = message;
     setRedMessage(message);
     if (redMessageTimerRef.current) clearTimeout(redMessageTimerRef.current);
-    redMessageTimerRef.current = window.setTimeout(dismissRedMessage, 4200);
+    redMessageTimerRef.current = setTimeout(dismissRedMessage, 4200);
   }, [dismissRedMessage, hasPinballMarbleItem, hasRingTossReward, syncAimUi]);
 
   const resetGame = useCallback(() => {
@@ -755,8 +755,16 @@ function RingTossGameInner() {
           resetGame();
         }}
         onReturnToMarket={() => {
-          clearStallRoundDismissed("ringtoss");
-          returnToMarketAfterRound(router, { stallId: "ringtoss", score: roundEnd?.score ?? 0 });
+          const score = roundEnd?.score ?? 0;
+          returnToMarketAfterRound(
+            router,
+            { stallId: "ringtoss", score },
+            () => {
+              roundEndHandledRef.current = false;
+              setGameOver(false);
+              setRoundEnd(null);
+            },
+          );
         }}
       />
       </div>

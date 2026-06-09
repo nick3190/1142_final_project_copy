@@ -6,6 +6,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import GamePageFallback from "@/components/game/GamePageFallback";
 
 const IntroFlow = lazy(() => import("@/components/intro/IntroFlow"));
+import CreditsModal from "@/components/home/CreditsModal";
 import EndingSelectModal from "@/components/home/EndingSelectModal";
 import LoginModal from "@/components/home/LoginModal";
 import SaveListModal from "@/components/home/SaveListModal";
@@ -18,7 +19,6 @@ import {
   startMainBgm,
   stopHubBgm,
 } from "@/lib/market/hubSounds";
-import { fetchCloudSaves } from "@/lib/api/playerCloudSync";
 import { resetGameProgress } from "@/lib/player/resetGameProgress";
 import { usePlayerStore } from "@/store/playerStore";
 import type { EndingId } from "@/lib/endings/types";
@@ -26,7 +26,7 @@ import { useNarrativeStore } from "@/store/narrativeStore";
 
 type BootPhase = "loading" | "intro" | "home";
 type BgFade = "hidden" | "visible" | "leaving";
-type HomeModal = null | "login" | "save-play" | "save-view" | "ending-select";
+type HomeModal = null | "login" | "save-play" | "save-view" | "ending-select" | "credits";
 
 const INTRO_REPLAY_LEAVE_MS = 1200;
 
@@ -66,7 +66,7 @@ export default function StartPage() {
   const loggedInNickname = usePlayerStore((s) => s.loggedInNickname);
   const saves = usePlayerStore((s) => s.saves);
   const login = usePlayerStore((s) => s.login);
-  const mergeCloudSaves = usePlayerStore((s) => s.mergeCloudSaves);
+  const syncProfileFromCloud = usePlayerStore((s) => s.syncProfileFromCloud);
   const logout = usePlayerStore((s) => s.logout);
   const flushActiveSaveToCloud = usePlayerStore((s) => s.flushActiveSaveToCloud);
   const getPlayerSaves = usePlayerStore((s) => s.getPlayerSaves);
@@ -96,6 +96,11 @@ export default function StartPage() {
     hydrateNarrative();
     stopHubBgm();
   }, [hydratePlayers, hydrateNarrative]);
+
+  useEffect(() => {
+    if (!playersHydrated || !loggedInNickname) return;
+    void syncProfileFromCloud(loggedInNickname);
+  }, [playersHydrated, loggedInNickname, syncProfileFromCloud]);
 
   useEffect(() => {
     if (!playersHydrated || !narrativeHydrated) return;
@@ -188,34 +193,25 @@ export default function StartPage() {
     const trimmed = nickname.trim();
     if (!trimmed) return;
     login(trimmed);
-    const cloudSaves = await fetchCloudSaves(trimmed);
-    if (cloudSaves.length > 0) {
-      mergeCloudSaves(trimmed, cloudSaves);
-    }
+    await syncProfileFromCloud(trimmed);
     setHomeModal("save-play");
-  }, [login, mergeCloudSaves, nickname]);
+  }, [login, syncProfileFromCloud, nickname]);
 
   const openStartFlow = useCallback(async () => {
     if (isLoggedIn && loggedInNickname) {
-      const cloudSaves = await fetchCloudSaves(loggedInNickname);
-      if (cloudSaves.length > 0) {
-        mergeCloudSaves(loggedInNickname, cloudSaves);
-      }
+      await syncProfileFromCloud(loggedInNickname);
       setHomeModal("save-play");
       return;
     }
     setNickname("");
     setHomeModal("login");
-  }, [isLoggedIn, loggedInNickname, mergeCloudSaves]);
+  }, [isLoggedIn, loggedInNickname, syncProfileFromCloud]);
 
   const openSaveHistory = useCallback(async () => {
     if (!isLoggedIn || !loggedInNickname) return;
-    const cloudSaves = await fetchCloudSaves(loggedInNickname);
-    if (cloudSaves.length > 0) {
-      mergeCloudSaves(loggedInNickname, cloudSaves);
-    }
+    await syncProfileFromCloud(loggedInNickname);
     setHomeModal("save-view");
-  }, [isLoggedIn, loggedInNickname, mergeCloudSaves]);
+  }, [isLoggedIn, loggedInNickname, syncProfileFromCloud]);
 
   const watchEnding = useCallback(
     (endingId: EndingId) => {
@@ -301,7 +297,7 @@ export default function StartPage() {
               disabled={!isLoggedIn}
               onClick={openSaveHistory}
             >
-              存檔
+              存檔紀錄
             </button>
             <button
               type="button"
@@ -329,6 +325,13 @@ export default function StartPage() {
             >
               排行榜
             </Link>
+            <button
+              type="button"
+              className="game-btn-ghost w-full text-center text-base px-10 py-3"
+              onClick={() => setHomeModal("credits")}
+            >
+              Credits
+            </button>
             {isLoggedIn ? (
               <button
                 type="button"
@@ -357,6 +360,8 @@ export default function StartPage() {
           onSelectEnding={watchEnding}
         />
       ) : null}
+
+      <CreditsModal open={homeModal === "credits"} onClose={() => setHomeModal(null)} />
 
       {loggedInNickname && (homeModal === "save-play" || homeModal === "save-view") ? (
         <SaveListModal

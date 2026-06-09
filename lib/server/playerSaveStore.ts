@@ -3,6 +3,7 @@ import { isRedisConfigured, redis } from "@/lib/server/redis";
 import {
   LEADERBOARD_INDEX_KEY,
   leaderboardKey,
+  normalizeCloudPayload,
   playerSavesKey,
 } from "@/lib/server/validatePlayerSave";
 
@@ -25,25 +26,30 @@ function pickLeaderboardEntry(saves: SaveRecord[]): LeaderboardCloudEntry | null
 export async function readPlayerSaves(nickname: string): Promise<PlayerCloudPayload | null> {
   if (!isRedisConfigured()) return null;
 
-  const data = await redis.get<PlayerCloudPayload>(playerSavesKey(nickname));
-  if (!data || !Array.isArray(data.saves)) return null;
-  return data;
+  const data = await redis.get<unknown>(playerSavesKey(nickname));
+  if (!data) return null;
+  return normalizeCloudPayload(data, nickname);
 }
 
-export async function writePlayerSaves(nickname: string, saves: SaveRecord[]): Promise<PlayerCloudPayload> {
+export async function writePlayerProfile(
+  nickname: string,
+  incoming: Omit<PlayerCloudPayload, "nickname" | "syncedAt">,
+): Promise<PlayerCloudPayload> {
   if (!isRedisConfigured()) {
     throw new Error("redis_not_configured");
   }
 
   const payload: PlayerCloudPayload = {
     nickname,
-    saves,
+    introDone: incoming.introDone,
+    activeSaveId: incoming.activeSaveId,
+    saves: incoming.saves,
     syncedAt: Date.now(),
   };
 
   await redis.set(playerSavesKey(nickname), payload);
 
-  const leaderboardEntry = pickLeaderboardEntry(saves);
+  const leaderboardEntry = pickLeaderboardEntry(payload.saves);
   if (leaderboardEntry) {
     await redis.set(leaderboardKey(nickname), leaderboardEntry);
     await redis.sadd(LEADERBOARD_INDEX_KEY, nickname);

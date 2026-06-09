@@ -20,7 +20,6 @@ export default function StallStoryModal({ script, onComplete }: Props) {
     ...script.dialogues.map((d) => ({ kind: "dialogue" as const, ...d })),
   ];
   const current = allLines[lineIndex];
-  const atEnd = lineIndex >= allLines.length - 1;
 
   const advanceLine = useCallback(() => {
     if (lineIndex < allLines.length - 1) {
@@ -44,7 +43,6 @@ export default function StallStoryModal({ script, onComplete }: Props) {
             id={current.id}
             speaker={current.speaker}
             text={current.text}
-            showNext={!atEnd}
           />
         )}
       </div>

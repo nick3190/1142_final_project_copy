@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StorySequencePlayer from "@/components/narrative/StorySequencePlayer";
 import { getEndingScript } from "@/data/endings-default";
@@ -11,6 +11,8 @@ import { usePageFadeIn } from "@/lib/navigation/usePageFadeIn";
 import type { EndingId } from "@/lib/endings/types";
 import { usePlayerStore } from "@/store/playerStore";
 import { useNarrativeStore } from "@/store/narrativeStore";
+
+const ENDING_FADE_MS = 1200;
 
 function parsePreviewEndingId(raw: string | null): EndingId | null {
   if (!raw) return null;
@@ -37,6 +39,7 @@ export default function EndingPageClient() {
   );
   const [playing, setPlaying] = useState(true);
   const [fadingOut, setFadingOut] = useState(false);
+  const onCompleteCalledRef = useRef(false);
 
   useEffect(() => {
     stopHubBgm();
@@ -91,16 +94,17 @@ export default function EndingPageClient() {
   }, [replayIntro, router]);
 
   const onComplete = useCallback(() => {
+    if (onCompleteCalledRef.current) return;
+    onCompleteCalledRef.current = true;
     setFadingOut(true);
     window.setTimeout(() => {
       setPlaying(false);
-      setFadingOut(false);
       if (isPreview) return;
       if (script?.restartMarket) {
-        void goMarket("/market?loop=1");
+        void fadeOutMainBgm().then(() => router.push("/market?loop=1"));
       }
-    }, 1200);
-  }, [goMarket, isPreview, script?.restartMarket]);
+    }, ENDING_FADE_MS);
+  }, [isPreview, router, script?.restartMarket]);
 
   if (!endingId || !script) {
     return (
@@ -112,7 +116,7 @@ export default function EndingPageClient() {
 
   if (playing) {
     return (
-      <div className="fixed inset-0 z-50 hub-shell">
+      <div className="fixed inset-0 z-50 hub-shell bg-black">
         <StorySequencePlayer
           lines={script.lines}
           endingId={endingId}
@@ -124,7 +128,7 @@ export default function EndingPageClient() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center hub-shell px-6 gap-6">
+    <div className="min-h-screen flex flex-col items-center justify-center hub-shell px-6 gap-6 bg-black">
       <h1 className="game-title text-xl">{script.title}</h1>
       {isPreview ? (
         <button
