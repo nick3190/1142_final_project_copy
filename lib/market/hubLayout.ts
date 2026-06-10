@@ -292,8 +292,8 @@ export const EDGE_STALL_Z_INDEX = EDGE_STALL_Z;
 /** 高於前景陰影層 (160)，確保可點擊 */
 export const ENTER_BAR_Z_INDEX = 170;
 export const PLAYER_Z_INDEX = 150;
-/** 地上彩券貼圖（低於玩家，貼近路面） */
-export const LOTTERY_GROUND_Z_INDEX = 130;
+/** 地上彩券／籤詩貼圖（高於前景遮罩 152、玩家 150，低於陰影 160） */
+export const LOTTERY_GROUND_Z_INDEX = 155;
 /** 地上拾取道具 UI 與貼圖的垂直間距 */
 export const PICKUP_ABOVE_GROUND_PX = 30;
 /** 地上拾取貼圖距離腳底線的偏移 */
@@ -338,8 +338,8 @@ export const STALL_BGM_OUTER_RANGE_PX = 400;
 export const STALL_BGM_INNER_RANGE_PX = 200;
 /** @deprecated 使用 STALL_BGM_OUTER_RANGE_PX */
 export const STALL_BGM_RANGE_PX = STALL_BGM_OUTER_RANGE_PX;
-export const STALL_BGM_MIN_VOLUME = 0.035;
-export const STALL_BGM_MAX_VOLUME = 0.15;
+export const STALL_BGM_MIN_VOLUME = 0.05;
+export const STALL_BGM_MAX_VOLUME = 0.19;
 
 export function stallBgmVolumeForDistance(dist: number): number {
   if (dist >= STALL_BGM_OUTER_RANGE_PX) return 0;
